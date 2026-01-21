@@ -140,7 +140,7 @@ class ClaudeCLIWrapper:
 
         Args:
             prompt: Prompt to execute
-            work_dir: Working directory
+            work_dir: Working directory (passed to subprocess.run, not CLI)
             non_interactive: Non-interactive mode flag
 
         Returns:
@@ -151,9 +151,7 @@ class ClaudeCLIWrapper:
         if non_interactive:
             cmd.extend(["-p", prompt])
 
-        if work_dir:
-            cmd.extend(["--cwd", work_dir])
-
+        # Note: work_dir is handled by subprocess.run(cwd=work_dir), not as a CLI arg
         return cmd
 
     def _execute_command(
