@@ -28,6 +28,19 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
+class FlushStreamHandler(logging.StreamHandler):
+    """Custom StreamHandler that flushes after each log record.
+
+    This ensures logs are written immediately rather than being buffered,
+    which is important for real-time monitoring of long-running tasks.
+    """
+
+    def emit(self, record):
+        """Emit a record and flush the stream."""
+        super().emit(record)
+        self.flush()
+
+
 def setup_logger(
     name: str = "autodev",
     level: str = "INFO",
@@ -49,8 +62,8 @@ def setup_logger(
     logger.setLevel(getattr(logging, level.upper()))
     logger.handlers.clear()
 
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Console handler (with auto-flush for real-time output)
+    console_handler = FlushStreamHandler(sys.stdout)
     console_handler.setLevel(logger.level)
 
     # Format: timestamp [level] [session_id] message

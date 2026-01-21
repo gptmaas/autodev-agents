@@ -257,6 +257,9 @@ def list_sessions():
             console.print("[yellow]No sessions found[/yellow]")
             return
 
+        # Build workflow to access checkpoint state
+        workflow = build_workflow()
+
         # Create table
         table = Table(title="Workflow Sessions")
         table.add_column("Session ID", style="cyan")
@@ -273,8 +276,13 @@ def list_sessions():
             design_exists = (session_dir / "Design.md").exists()
             tasks_exists = (session_dir / "tasks.json").exists()
 
-            # Try to get stage from state
-            stage = "unknown"
+            # Try to get stage from checkpoint state first
+            state = get_workflow_state(workflow, session_id)
+            if state and "stage" in state:
+                stage = state["stage"]
+            else:
+                # Fall back to determining stage from workspace files
+                stage = _determine_stage_from_workspace(prd_exists, design_exists, tasks_exists)
 
             table.add_row(
                 session_id,
@@ -290,6 +298,27 @@ def list_sessions():
         console.print(f"[red]Error: {e}[/red]")
         logger.error(f"List sessions command failed: {e}")
         sys.exit(1)
+
+
+def _determine_stage_from_workspace(prd_exists: bool, design_exists: bool, tasks_exists: bool) -> str:
+    """Determine the workflow stage from workspace files.
+
+    Args:
+        prd_exists: Whether PRD.md exists
+        design_exists: Whether Design.md exists
+        tasks_exists: Whether tasks.json exists
+
+    Returns:
+        Stage string (prd, design, dev, done, or unknown)
+    """
+    if tasks_exists:
+        return "dev"
+    elif design_exists:
+        return "design"
+    elif prd_exists:
+        return "prd_review"
+    else:
+        return "unknown"
 
 
 def _display_workflow_result(state: dict, status: str, session_id: str):
