@@ -149,6 +149,8 @@ class ClaudeCLIWrapper:
         cmd = [self.claude_path]
 
         if non_interactive:
+            # 自动接受文件编辑，避免等待确认
+            cmd.extend(["--permission-mode", "acceptEdits"])
             cmd.extend(["-p", prompt])
 
         # Note: work_dir is handled by subprocess.run(cwd=work_dir), not as a CLI arg
