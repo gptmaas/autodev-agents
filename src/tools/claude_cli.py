@@ -3,6 +3,8 @@
 import os
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
@@ -66,13 +68,16 @@ class ClaudeCLIWrapper:
         self.timeout = timeout or settings.claude_cli.timeout
         self.max_retries = max_retries or settings.claude_cli.max_retries
         self.retry_delay = settings.claude_cli.retry_delay
+        self.enable_stream_output = settings.claude_cli.enable_stream_output
+        self.heartbeat_interval = settings.claude_cli.heartbeat_interval
 
     def run(
         self,
         prompt: str,
         work_dir: Optional[str] = None,
         timeout: Optional[int] = None,
-        non_interactive: bool = True
+        non_interactive: bool = True,
+        add_dir: Optional[str] = None
     ) -> ClaudeCLIResult:
         """Execute Claude Code CLI with the given prompt.
 
@@ -81,6 +86,7 @@ class ClaudeCLIWrapper:
             work_dir: Working directory for execution
             timeout: Override default timeout
             non_interactive: Whether to run in non-interactive mode
+            add_dir: Directory path to add with --add-dir flag
 
         Returns:
             ClaudeCLIResult with execution details
@@ -89,7 +95,7 @@ class ClaudeCLIWrapper:
         actual_timeout = timeout or self.timeout
 
         # Prepare command
-        cmd = self._build_command(prompt, work_dir, non_interactive)
+        cmd = self._build_command(prompt, work_dir, non_interactive, add_dir)
 
         # Execute with retries
         for attempt in range(self.max_retries + 1):
@@ -134,7 +140,8 @@ class ClaudeCLIWrapper:
         self,
         prompt: str,
         work_dir: Optional[str],
-        non_interactive: bool
+        non_interactive: bool,
+        add_dir: Optional[str] = None
     ) -> List[str]:
         """Build the command list for Claude CLI.
 
@@ -142,11 +149,17 @@ class ClaudeCLIWrapper:
             prompt: Prompt to execute
             work_dir: Working directory (passed to subprocess.run, not CLI)
             non_interactive: Non-interactive mode flag
+            add_dir: Directory path to add with --add-dir flag
 
         Returns:
             Command as list of strings
         """
         cmd = [self.claude_path]
+
+        # Add --add-dir if specified
+        if add_dir:
+            cmd.extend(["--add-dir", add_dir])
+            logger.info(f"Using --add-dir: {add_dir}")
 
         if non_interactive:
             # 自动接受文件编辑，避免等待确认
@@ -162,7 +175,7 @@ class ClaudeCLIWrapper:
         timeout: int,
         work_dir: Optional[str]
     ) -> ClaudeCLIResult:
-        """Execute the command and capture output.
+        """Execute the command with streaming output and heartbeat.
 
         Args:
             cmd: Command to execute
@@ -173,57 +186,11 @@ class ClaudeCLIWrapper:
             ClaudeCLIResult with execution details
         """
         try:
-            # Execute command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=work_dir
-            )
-
-            output = result.stdout
-            error_output = result.stderr
-            exit_code = result.returncode
-
-            # Log output (truncated for readability)
-            log_output = output[:500] + "..." if len(output) > 500 else output
-            logger.debug(f"Claude CLI output: {log_output}")
-
-            # Check for success
-            is_success = exit_code == 0
-            is_success_output, _ = validate_coding_output(output)
-
-            if not is_success:
-                error_msg = error_output or f"Exit code: {exit_code}"
-                logger.error(f"Claude CLI failed: {error_msg}")
-                return ClaudeCLIResult(
-                    success=False,
-                    output=output,
-                    error=error_msg,
-                    exit_code=exit_code
-                )
-
-            if not is_success_output:
-                logger.warning("Claude CLI output validation failed")
-                return ClaudeCLIResult(
-                    success=False,
-                    output=output,
-                    error="Output validation failed",
-                    exit_code=exit_code
-                )
-
-            # Parse files created/modified from output
-            files_created = self._extract_files_from_output(output, "created")
-            files_modified = self._extract_files_from_output(output, "modified")
-
-            return ClaudeCLIResult(
-                success=True,
-                output=output,
-                files_created=files_created,
-                files_modified=files_modified,
-                exit_code=exit_code
-            )
+            # Use streaming mode if enabled
+            if self.enable_stream_output:
+                return self._execute_with_streaming(cmd, timeout, work_dir)
+            else:
+                return self._execute_silent(cmd, timeout, work_dir)
 
         except subprocess.TimeoutExpired as e:
             # Re-raise to be caught by retry logic
@@ -235,6 +202,172 @@ class ClaudeCLIWrapper:
                 output="",
                 error=str(e)
             )
+
+    def _execute_silent(
+        self,
+        cmd: List[str],
+        timeout: int,
+        work_dir: Optional[str]
+    ) -> ClaudeCLIResult:
+        """Execute command without streaming (legacy mode).
+
+        Args:
+            cmd: Command to execute
+            timeout: Timeout in seconds
+            work_dir: Working directory
+
+        Returns:
+            ClaudeCLIResult with execution details
+        """
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=work_dir
+        )
+
+        output = result.stdout
+        error_output = result.stderr
+        exit_code = result.returncode
+
+        # Log output (truncated for readability)
+        log_output = output[:500] + "..." if len(output) > 500 else output
+        logger.debug(f"Claude CLI output: {log_output}")
+
+        return self._process_result(output, error_output, exit_code)
+
+    def _execute_with_streaming(
+        self,
+        cmd: List[str],
+        timeout: int,
+        work_dir: Optional[str]
+    ) -> ClaudeCLIResult:
+        """Execute command with real-time streaming and heartbeat.
+
+        Args:
+            cmd: Command to execute
+            timeout: Timeout in seconds
+            work_dir: Working directory
+
+        Returns:
+            ClaudeCLIResult with execution details
+        """
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=work_dir
+        )
+
+        output_lines = []
+        error_lines = []
+        start_time = time.time()
+        stop_heartbeat = threading.Event()
+
+        # Heartbeat thread
+        def heartbeat():
+            while not stop_heartbeat.is_set():
+                if process.poll() is not None:
+                    break
+                elapsed = int(time.time() - start_time)
+                logger.info(f"Claude CLI 执行中... (已运行 {elapsed} 秒)")
+                stop_heartbeat.wait(self.heartbeat_interval)
+
+        heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        heartbeat_thread.start()
+
+        try:
+            # Stream output
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    # Read any remaining output
+                    remaining_stdout, remaining_stderr = process.communicate()
+                    if remaining_stdout:
+                        output_lines.append(remaining_stdout)
+                    if remaining_stderr:
+                        error_lines.append(remaining_stderr)
+                    break
+
+                # Read available output with timeout
+                try:
+                    # Use readline with a small timeout to avoid blocking
+                    line = process.stdout.readline()
+                    if line:
+                        output_lines.append(line)
+                        # Stream to logger in real-time
+                        logger.info(f"Claude CLI: {line.rstrip()}")
+                    else:
+                        # No output available, small sleep
+                        time.sleep(0.1)
+                except:
+                    break
+
+        finally:
+            stop_heartbeat.set()
+            heartbeat_thread.join(timeout=1)
+
+        elapsed_time = int(time.time() - start_time)
+        logger.info(f"Claude CLI 执行完成 (用时 {elapsed_time} 秒)")
+
+        output = "".join(output_lines)
+        error_output = "".join(error_lines)
+        exit_code = process.returncode
+
+        return self._process_result(output, error_output, exit_code)
+
+    def _process_result(
+        self,
+        output: str,
+        error_output: str,
+        exit_code: int
+    ) -> ClaudeCLIResult:
+        """Process command execution result.
+
+        Args:
+            output: Standard output
+            error_output: Error output
+            exit_code: Process exit code
+
+        Returns:
+            ClaudeCLIResult with execution details
+        """
+        # Check for success
+        is_success = exit_code == 0
+        is_success_output, _ = validate_coding_output(output)
+
+        if not is_success:
+            error_msg = error_output or f"Exit code: {exit_code}"
+            logger.error(f"Claude CLI failed: {error_msg}")
+            return ClaudeCLIResult(
+                success=False,
+                output=output,
+                error=error_msg,
+                exit_code=exit_code
+            )
+
+        if not is_success_output:
+            logger.warning("Claude CLI output validation failed")
+            return ClaudeCLIResult(
+                success=False,
+                output=output,
+                error="Output validation failed",
+                exit_code=exit_code
+            )
+
+        # Parse files created/modified from output
+        files_created = self._extract_files_from_output(output, "created")
+        files_modified = self._extract_files_from_output(output, "modified")
+
+        return ClaudeCLIResult(
+            success=True,
+            output=output,
+            files_created=files_created,
+            files_modified=files_modified,
+            exit_code=exit_code
+        )
 
     def _extract_files_from_output(self, output: str, action: str) -> List[str]:
         """Extract file information from CLI output.
@@ -266,13 +399,15 @@ class ClaudeCLIWrapper:
     def execute_prompt_file(
         self,
         prompt_file: Path,
-        work_dir: Optional[str] = None
+        work_dir: Optional[str] = None,
+        add_dir: Optional[str] = None
     ) -> ClaudeCLIResult:
         """Execute Claude CLI with a prompt from a file.
 
         Args:
             prompt_file: Path to file containing prompt
             work_dir: Working directory for execution
+            add_dir: Directory path to add with --add-dir flag
 
         Returns:
             ClaudeCLIResult with execution details
@@ -285,7 +420,7 @@ class ClaudeCLIWrapper:
             )
 
         prompt = prompt_file.read_text()
-        return self.run(prompt, work_dir)
+        return self.run(prompt, work_dir, add_dir=add_dir)
 
     def check_available(self) -> bool:
         """Check if Claude CLI is available.
@@ -323,7 +458,8 @@ def get_claude_cli() -> ClaudeCLIWrapper:
 def run_claude_cli(
     prompt: str,
     work_dir: Optional[str] = None,
-    timeout: Optional[int] = None
+    timeout: Optional[int] = None,
+    add_dir: Optional[str] = None
 ) -> ClaudeCLIResult:
     """Convenience function to run Claude CLI.
 
@@ -331,12 +467,13 @@ def run_claude_cli(
         prompt: Prompt to send to Claude Code
         work_dir: Working directory for execution
         timeout: Override default timeout
+        add_dir: Directory path to add with --add-dir flag
 
     Returns:
         ClaudeCLIResult with execution details
     """
     wrapper = get_claude_cli()
-    return wrapper.run(prompt, work_dir, timeout)
+    return wrapper.run(prompt, work_dir, timeout, add_dir=add_dir)
 
 
 def create_non_interactive_prompt(

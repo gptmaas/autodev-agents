@@ -354,6 +354,82 @@ python -m src.main start "构建一个Flask REST API，用于管理用户信息�
 | `HUMAN_IN_LOOP` | 是否启用人工审核 | `false` (默认全自动) |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 
+## Claude Code CLI 调用规则
+
+Coder Agent 通过调用 Claude Code CLI 来执行编码任务。以下是调用规则的详细说明。
+
+### 基本命令格式
+
+```bash
+claude --add-dir <work_dir> --permission-mode acceptEdits -p "<prompt>"
+```
+
+### 参数说明
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `--add-dir` | 指定 Claude Code 的工作目录 | `--add-dir /path/to/project` |
+| `--permission-mode` | 权限模式，设置为 acceptEdits 自动接受文件编辑 | `--permission-mode acceptEdits` |
+| `-p` | 后面跟要执行的 prompt | `-p "创建一个用户类"` |
+
+### 调用示例
+
+```python
+from src.tools.claude_cli import run_claude_cli
+
+# 基本调用
+result = run_claude_cli(
+    prompt="创建一个用户类",
+    work_dir="/path/to/project"
+)
+
+# 使用 --add-dir 指定工作目录
+result = run_claude_cli(
+    prompt="实现用户认证功能",
+    work_dir="/path/to/project",
+    add_dir="/path/to/project"  # 添加 --add-dir 参数
+)
+
+# 自定义超时时间
+result = run_claude_cli(
+    prompt="创建 API 端点",
+    work_dir="/path/to/project",
+    add_dir="/path/to/project",
+    timeout=600  # 10 分钟超时
+)
+```
+
+### 生成的实际命令
+
+```bash
+# Python 代码:
+run_claude_cli(
+    prompt="创建用户类",
+    work_dir="/workspace/project",
+    add_dir="/workspace/project"
+)
+
+# 实际执行的命令:
+claude --add-dir /workspace/project --permission-mode acceptEdits -p "创建用户类"
+```
+
+### 工作目录处理
+
+系统使用两层目录控制：
+
+1. **`--add-dir`** (Claude Code CLI 参数): 告诉 Claude Code 要操作的目录
+2. **`work_dir`** (subprocess cwd 参数): 指定命令执行的当前工作目录
+
+通常这两个目录应设置为相同路径，确保 Claude Code 在正确的目录中操作。
+
+### 权限模式
+
+默认使用 `acceptEdits` 模式，自动接受所有文件编辑，无需人工确认。这样可以实现全自动的代码生成。
+
+```bash
+claude --permission-mode acceptEdits -p "任务描述"
+```
+
 ## 测试
 
 运行测试套件：

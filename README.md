@@ -239,6 +239,87 @@ See `.env.example` for all configuration options:
 - `WORKSPACE_ROOT`: Directory for generated files
 - `CLAUDE_CLI_TIMEOUT`: Timeout for Claude Code CLI commands
 
+## Claude Code CLI Calling Rules
+
+Coder Agent executes coding tasks by calling Claude Code CLI. Here are the detailed calling rules.
+
+### Basic Command Format
+
+```bash
+claude --add-dir <work_dir> --permission-mode acceptEdits -p "<prompt>"
+```
+
+### Parameter Description
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `--add-dir` | Specify Claude Code working directory | `--add-dir /path/to/project` |
+| `--permission-mode` | Permission mode, set to acceptEdits for auto-accept file edits | `--permission-mode acceptEdits` |
+| `-p` | Prompt to execute | `-p "Create a user class"` |
+
+### Usage Example
+
+```python
+from src.tools.claude_cli import run_claude_cli
+
+# Basic call
+result = run_claude_cli(
+    prompt="Create a user class",
+    work_dir="/path/to/project"
+)
+
+# Use --add-dir to specify working directory
+result = run_claude_cli(
+    prompt="Implement user authentication",
+    work_dir="/path/to/project",
+    add_dir="/path/to/project"  # Add --add-dir parameter
+)
+
+# Custom timeout
+result = run_claude_cli(
+    prompt="Create API endpoint",
+    work_dir="/path/to/project",
+    add_dir="/path/to/project",
+    timeout=600  # 10 minutes timeout
+)
+```
+
+### Generated Command
+
+```bash
+# Python code:
+run_claude_cli(
+    prompt="Create a user class",
+    work_dir="/workspace/project",
+    add_dir="/workspace/project"
+)
+
+# Actual command executed:
+claude --add-dir /workspace/project --permission-mode acceptEdits -p "Create a user class"
+```
+
+### Working Directory Handling
+
+The system uses two levels of directory control:
+
+1. **`--add-dir`** (Claude Code CLI parameter): Tells Claude Code which directory to work with
+2. **`work_dir`** (subprocess cwd parameter): Specifies the current working directory for command execution
+
+Usually these two directories should be set to the same path to ensure Claude Code operates in the correct directory.
+
+### Permission Mode
+
+The default uses `acceptEdits` mode, which automatically accepts all file edits without manual confirmation. This enables fully automatic code generation.
+
+```bash
+claude --permission-mode acceptEdits -p "Task description"
+```
+
+- `ANTHROPIC_API_KEY`: Required for Claude API access
+- `DEFAULT_MODEL`: Model to use for agents
+- `WORKSPACE_ROOT`: Directory for generated files
+- `CLAUDE_CLI_TIMEOUT`: Timeout for Claude Code CLI commands
+
 ## License
 
 MIT
