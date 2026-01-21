@@ -9,6 +9,37 @@
 - **LangGraph** = 管理者（协调工作流、管理状态、做出路由决策）
 - **Claude Code CLI** = 工作者（通过 CLI 执行实际编码任务）
 
+### 工作流程图
+
+```mermaid
+flowchart TD
+    Start([用户需求]) --> PM[PM Agent<br/>产品经理智能体]
+    PM --> |生成 PRD.md| PRD_Interrupt{人工审核?}
+    PRD_Interrupt -->|通过| Architect[Architect Agent<br/>架构师智能体]
+    PRD_Interrupt -->|修改反馈| PM
+
+    Architect --> |生成 Design.md<br/>+ tasks.json| Design_Interrupt{人工审核?}
+    Design_Interrupt -->|通过| Coder[Coder Agent<br/>开发者智能体]
+    Design_Interrupt -->|修改反馈| Architect
+
+    Coder --> |执行编码任务| Check{任务完成?}
+    Check -->|否| Coder
+    Check -->|是| End([完成])
+
+    style PM fill:#e1f5fe
+    style Architect fill:#fff3e0
+    style Coder fill:#e8f5e9
+    style PRD_Interrupt fill:#fff9c4
+    style Design_Interrupt fill:#fff9c4
+```
+
+**流程说明：**
+1. **PM Agent** 生成产品需求文档 (PRD.md)
+2. 人工审核点：可修改 PRD 或提供反馈
+3. **Architect Agent** 创建技术设计文档 (Design.md) 和任务清单 (tasks.json)
+4. 人工审核点：可修改设计或任务清单
+5. **Coder Agent** 循环执行编码任务，直到所有任务完成
+
 ## 功能特性
 
 系统接收用户需求，自动生成：

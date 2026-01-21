@@ -15,6 +15,37 @@ The system takes a requirement and generates:
 2. Technical Design Document
 3. Working code implementation
 
+### Workflow Diagram
+
+```mermaid
+flowchart TD
+    Start([User Requirement]) --> PM[PM Agent<br/>Product Manager]
+    PM --> |Generate PRD.md| PRD_Interrupt{Human Review?}
+    PRD_Interrupt -->|Approved| Architect[Architect Agent]
+    PRD_Interrupt -->|Feedback| PM
+
+    Architect --> |Generate Design.md<br/>+ tasks.json| Design_Interrupt{Human Review?}
+    Design_Interrupt -->|Approved| Coder[Coder Agent]
+    Design_Interrupt -->|Feedback| Architect
+
+    Coder --> |Execute Coding Tasks| Check{All Done?}
+    Check -->|No| Coder
+    Check -->|Yes| End([Complete])
+
+    style PM fill:#e1f5fe
+    style Architect fill:#fff3e0
+    style Coder fill:#e8f5e9
+    style PRD_Interrupt fill:#fff9c4
+    style Design_Interrupt fill:#fff9c4
+```
+
+**Workflow Steps:**
+1. **PM Agent** generates Product Requirements Document (PRD.md)
+2. Human review checkpoint: modify PRD or provide feedback
+3. **Architect Agent** creates Technical Design (Design.md) and task breakdown (tasks.json)
+4. Human review checkpoint: modify design or task list
+5. **Coder Agent** loops through coding tasks until completion
+
 ## Project Structure
 
 ```
