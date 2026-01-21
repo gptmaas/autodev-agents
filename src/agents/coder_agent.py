@@ -146,15 +146,23 @@ class CoderAgent(ToolAgent):
         settings = get_settings()
         project_dir = state.get("project_dir", "")
 
+        # Get workspace directory (contains PRD.md, Design.md, tasks.json)
+        workspace_dir = str(settings.get_session_workspace(session_id))
+
         if project_dir:
             # User specified a project directory
+            # Use project directory as work_dir
             work_dir = project_dir
-            add_dir = project_dir
-            logger.info(f"Using user-specified project directory: {work_dir}")
+            # Add BOTH workspace and project directory so Claude can access:
+            # 1. Workspace dir: PRD.md, Design.md, tasks.json
+            # 2. Project dir: where to generate the code
+            add_dir = [workspace_dir, project_dir]
+            logger.info(f"Using project directory: {work_dir}")
+            logger.info(f"Adding workspace to --add-dir: {workspace_dir}")
         else:
             # Use default workspace code directory
             work_dir = str(settings.get_code_directory(session_id))
-            add_dir = work_dir
+            add_dir = workspace_dir
             logger.info(f"Using default workspace directory: {work_dir}")
 
         design_path = state.get("design_file_path", "")
