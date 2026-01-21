@@ -111,7 +111,23 @@ python -m src.main start "构建一个简单的Python CLI待办事项应用" --h
 2. 生成技术设计文档后暂停 → 审核后继续
 3. 执行代码实现
 
-#### 2. 继续工作流（审核后）
+#### 3. 指定项目目录
+
+```bash
+# 使用 --project-dir 或 -d 参数指定项目目录
+# 代码将在指定目录中生成，而不是默认的 workspace 目录
+python -m src.main start "添加用户认证功能" --project-dir /path/to/my/project
+
+# 简写形式
+python -m src.main start "修复登录 bug" -d /path/to/my/project
+```
+
+**注意事项：**
+- 项目目录必须已存在（系统会检查）
+- Claude Code 将使用 `--add-dir` 参数指向此目录
+- 生成的代码将直接写入指定项目目录
+
+#### 4. 继续工作流（审核后）
 
 ```bash
 # 无需修改，直接继续

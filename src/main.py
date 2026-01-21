@@ -44,8 +44,9 @@ def init_cli():
 @click.option("--verbose", "-v", is_flag=True, help="启用详细输出")
 @click.option("--human-loop", is_flag=True, help="启用人工审核（在 PRD 和 Design 阶段后暂停等待审核）")
 @click.option("--batch-coding", is_flag=True, help="批量执行所有编码任务")
+@click.option("--project-dir", "-d", type=click.Path(exists=True), help="指定项目目录（代码将在此目录中生成）")
 @click.pass_context
-def cli(ctx, verbose, human_loop, batch_coding):
+def cli(ctx, verbose, human_loop, batch_coding, project_dir):
     """AutoDev Agents - 智能软件开发多智能体系统。"""
     init_cli()
 
@@ -54,6 +55,7 @@ def cli(ctx, verbose, human_loop, batch_coding):
     ctx.obj["verbose"] = verbose
     ctx.obj["human_in_loop"] = human_loop  # 直接使用 human_loop 标志
     ctx.obj["batch_coding"] = batch_coding
+    ctx.obj["project_dir"] = project_dir
 
 
 @cli.command()
@@ -65,14 +67,20 @@ def start(ctx, requirement, session_id, output):
     """启动新的工作流。
 
     示例: autodev start "构建一个简单的 Python CLI 待办事项应用"
+
+    使用项目目录:
+    autodev start "添加用户认证功能" --project-dir /path/to/project
     """
     human_in_loop = ctx.obj["human_in_loop"]
     batch_coding = ctx.obj["batch_coding"]
+    project_dir = ctx.obj["project_dir"]
 
     console.print(Panel.fit(f"[bold blue]启动新工作流[/bold blue]"))
     console.print(f"需求: {requirement}")
     console.print(f"人工审核: {'是' if human_in_loop else '否'}")
     console.print(f"批量编码: {'是' if batch_coding else '否'}")
+    if project_dir:
+        console.print(f"项目目录: [cyan]{project_dir}[/cyan]")
     console.print()
 
     try:
@@ -81,7 +89,8 @@ def start(ctx, requirement, session_id, output):
             requirement=requirement,
             session_id=session_id,
             human_in_loop=human_in_loop,
-            batch_coding=batch_coding
+            batch_coding=batch_coding,
+            project_dir=project_dir
         )
 
         # Run until interrupt or completion

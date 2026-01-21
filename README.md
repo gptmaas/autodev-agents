@@ -132,6 +132,22 @@ With human review enabled, the system will pause after:
 2. Technical Design generation → review and continue
 3. Execute the implementation
 
+### Specify Project Directory
+
+```bash
+# Use --project-dir or -d to specify an existing project directory
+# Code will be generated in the specified directory instead of default workspace
+python -m src.main start "Add user authentication" --project-dir /path/to/my/project
+
+# Short form
+python -m src.main start "Fix login bug" -d /path/to/my/project
+```
+
+**Important notes:**
+- The project directory must exist (system will check)
+- Claude Code will use `--add-dir` parameter pointing to this directory
+- Generated code will be written directly to the specified project directory
+
 ### Resume from Checkpoint
 
 ```bash

@@ -141,10 +141,22 @@ class CoderAgent(ToolAgent):
         logger.info(f"任务描述: {task.get('description', 'N/A')}")
         logger.info("=" * 60)
 
-        # Get workspace
+        # Get workspace - use project_dir if specified, otherwise use default code directory
         session_id = state.get("session_id", generate_session_id())
         settings = get_settings()
-        work_dir = str(settings.get_code_directory(session_id))
+        project_dir = state.get("project_dir", "")
+
+        if project_dir:
+            # User specified a project directory
+            work_dir = project_dir
+            add_dir = project_dir
+            logger.info(f"Using user-specified project directory: {work_dir}")
+        else:
+            # Use default workspace code directory
+            work_dir = str(settings.get_code_directory(session_id))
+            add_dir = work_dir
+            logger.info(f"Using default workspace directory: {work_dir}")
+
         design_path = state.get("design_file_path", "")
 
         # Read design for context
@@ -191,7 +203,8 @@ Implement this task according to the technical design above.
         # Execute via Claude Code CLI
         result = run_claude_cli(
             prompt=prompt,
-            work_dir=work_dir
+            work_dir=work_dir,
+            add_dir=add_dir  # Use --add-dir to specify the working directory
         )
 
         # Process result
@@ -271,6 +284,9 @@ Implement this task according to the technical design above.
             Dictionary of state updates
         """
         import time
+
+        # Get session_id for task status sync
+        session_id = state.get("session_id", generate_session_id())
 
         task_list = state.get("task_list", [])
         total_tasks = len(task_list)

@@ -54,6 +54,8 @@ class AgentState(TypedDict):
     """List of completed task IDs."""
 
     # Code Generation Phase
+    project_dir: str
+    """User-specified project directory (optional). If set, code will be generated here instead of workspace."""
     code_directory: str
     """Directory where generated code is stored."""
     coding_iterations: int
@@ -136,6 +138,7 @@ def create_initial_state(requirement: str, session_id: str) -> AgentState:
         "completed_tasks": [],
 
         # Code Generation Phase
+        "project_dir": "",
         "code_directory": "",
         "coding_iterations": 0,
         "coding_output": "",

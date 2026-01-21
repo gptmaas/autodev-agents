@@ -170,7 +170,8 @@ def create_workflow_session(
     requirement: str,
     session_id: Optional[str] = None,
     human_in_loop: bool = True,
-    batch_coding: bool = False
+    batch_coding: bool = False,
+    project_dir: Optional[str] = None
 ) -> tuple[StateGraph, str, Dict[str, Any]]:
     """Create a new workflow session.
 
@@ -179,6 +180,7 @@ def create_workflow_session(
         session_id: Optional session ID (generated if not provided)
         human_in_loop: Whether to include human interrupt points
         batch_coding: Whether to execute all coding tasks at once
+        project_dir: Optional project directory for code generation
 
     Returns:
         Tuple of (compiled_workflow, session_id, initial_state)
@@ -196,6 +198,11 @@ def create_workflow_session(
 
     # Create initial state
     initial_state = create_initial_state(requirement, session_id)
+
+    # Set project_dir if provided
+    if project_dir:
+        initial_state["project_dir"] = str(project_dir)
+        logger.info(f"Project directory set to: {project_dir}")
 
     logger.info(f"Session {session_id} created with requirement: {requirement[:100]}...")
 
@@ -236,7 +243,14 @@ def run_workflow_until_interrupt(
 
         for event in workflow.stream(state, config, stream_mode="values"):
             step_count += 1
-            logger.debug(f"Step {step_count}: {event.get('stage', 'unknown')}")
+            current_stage = event.get('stage', 'unknown')
+            prev_stage = state.get('stage', 'unknown')
+
+            # Log stage transitions
+            if current_stage != prev_stage:
+                logger.info(f"-> 阶段转换: {prev_stage} -> {current_stage}")
+
+            logger.info(f"Step {step_count}: 当前阶段 {current_stage}")
 
             if step_count >= max_steps:
                 logger.warning(f"Reached max steps ({max_steps})")
@@ -323,6 +337,8 @@ def _resume_from_checkpoint(
     try:
         # Get current state
         current_state = workflow.get_state(config).values
+        current_stage = current_state.get("stage", "unknown")
+        logger.info(f"从检查点恢复工作流 (当前阶段: {current_stage})")
 
         # Add feedback if provided
         if feedback:
@@ -332,11 +348,17 @@ def _resume_from_checkpoint(
             elif stage == "design":
                 current_state["design_feedback"] = feedback
             current_state["human_feedback"] = feedback
+            logger.info(f"已添加反馈: {feedback[:100]}...")
 
         # Resume execution (this will continue from the interrupt)
         # We need to invoke None to signal "continue"
+        prev_stage = current_stage
         for event in workflow.stream(None, config, stream_mode="values"):
-            logger.debug(f"Resume step: {event.get('stage', 'unknown')}")
+            new_stage = event.get('stage', 'unknown')
+            if new_stage != prev_stage:
+                logger.info(f"-> 阶段转换: {prev_stage} -> {new_stage}")
+                prev_stage = new_stage
+            logger.info(f"恢复进度: 当前阶段 {new_stage}")
 
         # Get the final state
         final_state = workflow.get_state(config).values
