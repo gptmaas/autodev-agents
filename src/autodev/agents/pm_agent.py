@@ -1,11 +1,12 @@
 """PM Agent for generating Product Requirements Documents."""
 
 from typing import Any, Dict
+import re
 
 from ..core.state import AgentState
 from ..agents.base import LLMAgent
 from ..config.settings import get_settings
-from ..config.prompts import PM_AGENT_SYSTEM_PROMPT, get_pm_prompt, get_pm_revision_prompt
+from ..config.prompts import PM_AGENT_SYSTEM_PROMPT, get_pm_prompt, get_pm_revision_prompt, get_pm_revision_with_reviews_prompt
 from ..tools.file_ops import write_file
 from ..tools.validation import OutputValidator, validate_prd
 from ..utils.logger import get_logger
@@ -48,10 +49,17 @@ class PMAgent(LLMAgent):
         """
         requirement = state.get("requirement", "")
         feedback = state.get("prd_feedback", "")
+        reviews = state.get("prd_reviews", {})
         iteration = state.get("prd_iteration", 0)
 
-        if iteration > 0 and feedback:
-            # Revision mode
+        # Check if this is a revision based on reviews
+        if iteration > 0 and reviews and len(reviews) == 3:
+            # Revision mode based on reviews from all three reviewers
+            prd_content = state.get("prd_content", "")
+            logger.info("Building prompt for PRD revision based on reviews")
+            return get_pm_revision_with_reviews_prompt(prd_content, reviews)
+        elif iteration > 0 and feedback:
+            # Revision mode based on human feedback
             prd_content = state.get("prd_content", "")
             return get_pm_revision_prompt(prd_content, feedback)
         else:
@@ -90,19 +98,89 @@ class PMAgent(LLMAgent):
             logger.error(f"Failed to save PRD: {e}")
             # Continue anyway, the content is in memory
 
+        # Check if this is a revision based on reviews
+        reviews = state.get("prd_reviews", {})
+        iteration = state.get("prd_iteration", 0)
+
+        # Extract revision summary if present (when revising based on reviews)
+        revision_summary = ""
+        if "# PRD 修订说明" in response or "# PRD Revision" in response:
+            # Extract the revision summary section
+            summary_match = re.search(
+                r"# (PRD 修订说明|PRD Revision)\s*\n## (主要变更内容|Major Changes)\s*\n(.*?)(?=\n##|$)",
+                response,
+                re.DOTALL | re.MULTILINE
+            )
+            if summary_match:
+                revision_summary = summary_match.group(3).strip()
+                logger.info(f"Extracted revision summary: {revision_summary[:100]}...")
+
+        # Save reviews to file if present
+        reviews_path = ""
+        if reviews and len(reviews) == 3:
+            reviews_path = workspace / "PRD_Reviews.md"
+            reviews_content = self._format_reviews_for_file(reviews)
+            try:
+                write_file(reviews_path, reviews_content)
+                logger.info(f"PRD reviews saved to: {reviews_path}")
+            except Exception as e:
+                logger.error(f"Failed to save PRD reviews: {e}")
+
         # Update state
         updates = {
             "prd_content": response,
             "prd_file_path": str(prd_path),
-            "stage": "prd",
-            "prd_iteration": state.get("prd_iteration", 0) + 1,
+            "prd_iteration": iteration + 1,
         }
+
+        # If we just processed reviews, clear them and mark as reviewed
+        if reviews and len(reviews) == 3:
+            updates["prd_reviewed"] = True
+            updates["prd_reviews_file_path"] = str(reviews_path)
+            updates["prd_revision_summary"] = revision_summary
+
+        # Determine next stage based on whether we've done reviews
+        if state.get("prd_reviewed"):
+            # Already reviewed, move to design stage
+            updates["stage"] = "design"
+        elif reviews and len(reviews) == 3:
+            # Just finished revision based on reviews, move to design
+            updates["stage"] = "design"
+        else:
+            # Still in PRD stage
+            updates["stage"] = "prd"
 
         # Clear feedback after processing
         if state.get("prd_feedback"):
             updates["prd_feedback"] = ""
 
         return updates
+
+    def _format_reviews_for_file(self, reviews: dict) -> str:
+        """Format reviews for saving to a markdown file.
+
+        Args:
+            reviews: Dictionary of reviews with keys "pm", "dev", "qa"
+
+        Returns:
+            Formatted markdown string
+        """
+        role_names = {
+            "pm": "产品经理",
+            "dev": "开发工程师",
+            "qa": "测试工程师",
+        }
+
+        output = "# PRD 评审意见汇总\n\n"
+        output += f"评审时间: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        output += "---\n\n"
+
+        for role, review in reviews.items():
+            output += f"## {role_names.get(role, role)}评审意见\n\n"
+            output += review
+            output += "\n\n---\n\n"
+
+        return output
 
 
 def pm_agent_node(state: AgentState) -> Dict[str, Any]:

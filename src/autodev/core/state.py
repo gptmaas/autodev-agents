@@ -26,6 +26,16 @@ class AgentState(TypedDict):
     prd_iteration: int
     """Number of PRD iteration cycles."""
 
+    # PRD Review Phase
+    prd_reviews: Dict[str, str]
+    """PRD review feedback from different reviewers (pm, dev, qa)."""
+    prd_reviews_file_path: str
+    """Path to PRD reviews markdown file."""
+    prd_reviewed: bool
+    """Whether PRD has been reviewed by reviewers."""
+    prd_revision_summary: str
+    """Summary of changes made after reviews."""
+
     # Design Phase
     design_content: str
     """Generated technical design content."""
@@ -84,7 +94,7 @@ class AgentState(TypedDict):
     """Output from bug fixing attempts."""
 
     # Workflow Control
-    stage: Literal["prd", "design", "dev", "test", "bug_fix", "done"]
+    stage: Literal["prd", "prd_review", "design", "dev", "test", "bug_fix", "done"]
     """Current workflow stage."""
     session_id: str
     """Unique session identifier for this workflow run."""
@@ -125,6 +135,12 @@ def create_initial_state(requirement: str, session_id: str) -> AgentState:
         "prd_file_path": "",
         "prd_feedback": "",
         "prd_iteration": 0,
+
+        # PRD Review Phase
+        "prd_reviews": {},
+        "prd_reviews_file_path": "",
+        "prd_reviewed": False,
+        "prd_revision_summary": "",
 
         # Design Phase
         "design_content": "",

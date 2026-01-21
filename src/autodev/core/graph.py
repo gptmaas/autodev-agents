@@ -10,6 +10,7 @@ from .checkpoint_manager import get_checkpointer
 from ..agents.pm_agent import pm_agent_node
 from ..agents.architect_agent import architect_agent_node
 from ..agents.coder_agent import coder_agent_node, check_coding_finished, coder_batch_node
+from ..agents.prd_reviewer_agents import pm_reviewer_node, dev_reviewer_node, qa_reviewer_node
 from ..config.settings import get_settings
 from ..utils.logger import get_logger
 from ..utils.helpers import generate_session_id
@@ -80,8 +81,11 @@ def reconstruct_state_from_workspace(session_id: str) -> Optional[Dict[str, Any]
         state["stage"] = "dev"
     elif state.get("design_content"):
         state["stage"] = "design"
+    elif state.get("prd_reviewed"):
+        # PRD has been reviewed and revised
+        state["stage"] = "design"
     elif state.get("prd_content"):
-        state["stage"] = "prd"
+        state["stage"] = "prd_review"
     else:
         state["stage"] = "prd"
 
@@ -90,13 +94,15 @@ def reconstruct_state_from_workspace(session_id: str) -> Optional[Dict[str, Any]
 
 def build_workflow(
     human_in_loop: bool = True,
-    batch_coding: bool = False
+    batch_coding: bool = False,
+    enable_prd_review: bool = True
 ) -> StateGraph:
     """Build the LangGraph workflow for the multi-agent system.
 
     Args:
         human_in_loop: Whether to include human interrupt points
         batch_coding: Whether to execute all coding tasks at once
+        enable_prd_review: Whether to enable PRD review by reviewers
 
     Returns:
         Compiled StateGraph ready for execution
@@ -108,6 +114,14 @@ def build_workflow(
 
     # Add nodes for each agent
     workflow.add_node("pm", pm_agent_node)
+
+    if enable_prd_review:
+        # Add PRD reviewer nodes
+        workflow.add_node("pm_reviewer", pm_reviewer_node)
+        workflow.add_node("dev_reviewer", dev_reviewer_node)
+        workflow.add_node("qa_reviewer", qa_reviewer_node)
+        workflow.add_node("pm_revise", pm_agent_node)  # PM revises based on reviews
+
     workflow.add_node("architect", architect_agent_node)
 
     if batch_coding:
@@ -121,8 +135,16 @@ def build_workflow(
     workflow.set_entry_point("pm")
 
     # Define edges between nodes
-    # PM -> Architect (always proceeds after PRD is generated)
-    workflow.add_edge("pm", "architect")
+    if enable_prd_review:
+        # PRD Review flow: PM -> PM Reviewer -> Dev Reviewer -> QA Reviewer -> PM Revise -> Architect
+        workflow.add_edge("pm", "pm_reviewer")
+        workflow.add_edge("pm_reviewer", "dev_reviewer")
+        workflow.add_edge("dev_reviewer", "qa_reviewer")
+        workflow.add_edge("qa_reviewer", "pm_revise")
+        workflow.add_edge("pm_revise", "architect")
+    else:
+        # Direct flow: PM -> Architect
+        workflow.add_edge("pm", "architect")
 
     # Architect -> Coder (always proceeds after design is generated)
     workflow.add_edge("architect", "coder")
@@ -151,8 +173,12 @@ def build_workflow(
     interrupt_after = []
 
     if human_in_loop:
-        # Interrupt after PM (so human can review PRD)
-        interrupt_after.append("pm")
+        if enable_prd_review:
+            # Interrupt after PM revise (after reviews are incorporated)
+            interrupt_after.append("pm_revise")
+        else:
+            # Interrupt after PM (so human can review PRD)
+            interrupt_after.append("pm")
         # Interrupt after Architect (so human can review Design)
         interrupt_after.append("architect")
 
@@ -162,7 +188,7 @@ def build_workflow(
         interrupt_after=interrupt_after
     )
 
-    logger.info(f"Workflow compiled with human-in-loop: {human_in_loop}")
+    logger.info(f"Workflow compiled with human-in-loop: {human_in_loop}, PRD review: {enable_prd_review}")
     return compiled
 
 
@@ -171,7 +197,8 @@ def create_workflow_session(
     session_id: Optional[str] = None,
     human_in_loop: bool = True,
     batch_coding: bool = False,
-    project_dir: Optional[str] = None
+    project_dir: Optional[str] = None,
+    enable_prd_review: bool = True
 ) -> tuple[StateGraph, str, Dict[str, Any]]:
     """Create a new workflow session.
 
@@ -181,6 +208,7 @@ def create_workflow_session(
         human_in_loop: Whether to include human interrupt points
         batch_coding: Whether to execute all coding tasks at once
         project_dir: Optional project directory for code generation
+        enable_prd_review: Whether to enable PRD review by reviewers
 
     Returns:
         Tuple of (compiled_workflow, session_id, initial_state)
@@ -193,7 +221,8 @@ def create_workflow_session(
     # Build workflow
     workflow = build_workflow(
         human_in_loop=human_in_loop,
-        batch_coding=batch_coding
+        batch_coding=batch_coding,
+        enable_prd_review=enable_prd_review
     )
 
     # Create initial state
@@ -343,7 +372,7 @@ def _resume_from_checkpoint(
         # Add feedback if provided
         if feedback:
             stage = current_state.get("stage", "")
-            if stage == "prd":
+            if stage in ("prd", "prd_review"):
                 current_state["prd_feedback"] = feedback
             elif stage == "design":
                 current_state["design_feedback"] = feedback
@@ -408,7 +437,7 @@ def _resume_from_workspace(
 
         # Add feedback if provided
         if feedback:
-            if stage == "prd":
+            if stage in ("prd", "prd_review"):
                 current_state["prd_feedback"] = feedback
             elif stage == "design":
                 current_state["design_feedback"] = feedback
