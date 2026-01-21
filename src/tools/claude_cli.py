@@ -149,7 +149,7 @@ class ClaudeCLIWrapper:
         cmd = [self.claude_path]
 
         if non_interactive:
-            cmd.extend(["--prompt", prompt])
+            cmd.extend(["-p", prompt])
 
         if work_dir:
             cmd.extend(["--cwd", work_dir])
