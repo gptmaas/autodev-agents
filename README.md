@@ -108,16 +108,29 @@ cp .env.example .env
 
 ## Usage
 
-### Start a New Project
+### Start a New Project (Automatic Mode - Default)
 
 ```bash
+# Default: automatic execution without human review
 python -m src.main start "Build a simple Python CLI todo app with JSON storage"
 ```
 
-The system will:
-1. Generate a PRD and pause for review
-2. Generate a Technical Design and pause for review
-3. Execute the implementation automatically
+The system will automatically:
+1. Generate a PRD
+2. Generate a Technical Design
+3. Execute the implementation
+
+### Enable Human Review Mode
+
+```bash
+# Add --human-loop flag to enable human review at PRD and Design stages
+python -m src.main start "Build a simple Python CLI todo app" --human-loop
+```
+
+With human review enabled, the system will pause after:
+1. PRD generation → review and continue
+2. Technical Design generation → review and continue
+3. Execute the implementation
 
 ### Resume from Checkpoint
 

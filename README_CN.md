@@ -87,15 +87,28 @@ DEFAULT_MODEL=claude-3-5-sonnet-20241022
 
 ### 方式一：使用 CLI 命令
 
-#### 1. 启动新的工作流
+#### 1. 启动新的工作流（全自动模式，默认）
 
 ```bash
+# 默认全自动执行，无需人工审核
 python -m src.main start "构建一个简单的Python CLI待办事项应用，支持添加、列表、完成和删除操作"
 ```
 
-系统将：
-1. 生成 PRD 文档并暂停等待审核
-2. 审核后继续生成技术设计文档
+系统将自动完成：
+1. 生成 PRD 文档
+2. 生成技术设计文档
+3. 执行代码实现
+
+#### 2. 启用人工审核模式
+
+```bash
+# 添加 --human-loop 参数启用人工审核
+python -m src.main start "构建一个简单的Python CLI待办事项应用" --human-loop
+```
+
+系统将在以下阶段暂停等待审核：
+1. 生成 PRD 文档后暂停 → 审核后继续
+2. 生成技术设计文档后暂停 → 审核后继续
 3. 执行代码实现
 
 #### 2. 继续工作流（审核后）
@@ -138,8 +151,14 @@ from src.core.graph import (
 requirement = "构建一个简单的Python计数器应用"
 workflow, session_id, initial_state = create_workflow_session(
     requirement=requirement,
-    human_in_loop=True  # 需要人工审核
+    human_in_loop=False  # 全自动模式（默认）
 )
+
+# 如需人工审核，设置 human_in_loop=True
+# workflow, session_id, initial_state = create_workflow_session(
+#     requirement=requirement,
+#     human_in_loop=True  # 在 PRD 和 Design 阶段后暂停等待审核
+# )
 
 # 运行直到中断点
 final_state, status, checkpoint = run_workflow_until_interrupt(
@@ -272,10 +291,16 @@ autodev-agents/
 
 ## 高级用法
 
-### 禁用人工审核（自动模式）
+### 启用人工审核模式
+
+默认系统自动执行所有阶段。如需在 PRD 和 Design 阶段进行人工审核：
 
 ```bash
-python -m src.main start "需求描述" --no-human-loop
+# 启用人工审核
+python -m src.main start "需求描述" --human-loop
+
+# 配合环境变量配置
+HUMAN_IN_LOOP=true python -m src.main start "需求描述"
 ```
 
 ### 批量执行编码任务
@@ -326,7 +351,7 @@ python -m src.main start "构建一个Flask REST API，用于管理用户信息�
 | `CODER_MODEL` | 开发者智能体模型 | `claude-3-5-sonnet-20241022` |
 | `WORKSPACE_ROOT` | 工作目录 | `workspace` |
 | `MAX_CODING_ITERATIONS` | 最大编码迭代次数 | `50` |
-| `HUMAN_IN_LOOP` | 是否启用人工审核 | `true` |
+| `HUMAN_IN_LOOP` | 是否启用人工审核 | `false` (默认全自动) |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 
 ## 测试
