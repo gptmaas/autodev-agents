@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..utils.logger import get_logger
 from ..utils.helpers import ensure_directory
+from ..config.settings import get_settings
 
 
 logger = get_logger()
@@ -342,3 +343,21 @@ def load_session_artifact(workspace: Path, artifact_type: str, filename: str) ->
     """
     artifact_path = workspace / artifact_type / filename
     return read_file(artifact_path)
+
+
+def update_tasks_json_file(session_id: str, task_list: List[Dict[str, Any]]) -> None:
+    """Update tasks.json with current task statuses.
+
+    This function writes the current task_list to the tasks.json file
+    in the session workspace, ensuring that task status changes are
+    persisted to disk.
+
+    Args:
+        session_id: Session identifier
+        task_list: Current list of tasks with updated statuses
+    """
+    settings = get_settings()
+    workspace = settings.get_session_workspace(session_id)
+    tasks_path = workspace / "tasks.json"
+    write_tasks_json(tasks_path, task_list)
+    logger.info(f"Updated tasks.json for session {session_id} with {len(task_list)} tasks")

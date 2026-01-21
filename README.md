@@ -132,6 +132,60 @@ pytest
 python examples/simple_todo_app.py
 ```
 
+## tasks.json Format
+
+The `tasks.json` file contains the task breakdown created by the Architect Agent. It tracks task status and execution timing.
+
+### Example
+
+```json
+[
+  {
+    "id": "task_001",
+    "title": "Create data model",
+    "description": "Implement Todo data class",
+    "dependencies": [],
+    "status": "completed",
+    "started_at": "2026-01-21T10:30:00.123456",
+    "completed_at": "2026-01-21T10:30:45.678901",
+    "duration": 45.56,
+    "priority": 10
+  },
+  {
+    "id": "task_002",
+    "title": "Implement storage layer",
+    "description": "Create JSON file storage operations",
+    "dependencies": ["task_001"],
+    "status": "pending",
+    "priority": 9
+  }
+]
+```
+
+### Field Descriptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique task identifier |
+| `title` | string | Task title |
+| `description` | string | Detailed task description |
+| `dependencies` | array | List of prerequisite task IDs |
+| `status` | string | Task status: `pending` / `completed` / `blocked` |
+| `started_at` | string | Task start time (ISO 8601 format) |
+| `completed_at` | string | Task completion time (completed tasks only) |
+| `blocked_at` | string | Task blocked time (blocked tasks only) |
+| `duration` | number | Execution duration in seconds (2 decimal places) |
+| `priority` | number | Task priority |
+
+### Status Synchronization
+
+The system automatically syncs `tasks.json` to disk on every task status change, ensuring correct progress recovery after workflow interruption.
+
+Sync triggers:
+- Task starts → records `started_at`
+- Task completes → updates `status` to `completed`, records `completed_at` and `duration`
+- Task fails → updates `status` to `blocked`, records `blocked_at` and `duration`
+
 ## Configuration
 
 See `.env.example` for all configuration options:

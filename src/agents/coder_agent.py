@@ -1,5 +1,6 @@
 """Coder Agent for executing coding tasks via Claude Code CLI."""
 
+from datetime import datetime
 from typing import Any, Dict, List
 
 from ..core.state import AgentState
@@ -7,7 +8,7 @@ from ..agents.base import ToolAgent
 from ..config.settings import get_settings
 from ..config.prompts import CODER_SYSTEM_PROMPT, get_coder_prompt
 from ..tools.claude_cli import run_claude_cli, create_non_interactive_prompt
-from ..tools.file_ops import read_file, get_ready_tasks, get_task_by_id
+from ..tools.file_ops import read_file, get_ready_tasks, get_task_by_id, update_tasks_json_file
 from ..tools.validation import validate_coding_output
 from ..utils.logger import get_logger
 from ..utils.helpers import generate_session_id
@@ -123,7 +124,22 @@ class CoderAgent(ToolAgent):
         Returns:
             Dictionary of state updates
         """
-        logger.info(f"Executing task: {task['id']} - {task['title']}")
+        # Record task start time
+        task_start_time = datetime.now()
+
+        task_list = state.get("task_list", [])
+        current_index = state.get("current_task_index", 0)
+        total_tasks = len(task_list)
+        task_number = current_index + 1
+        progress_percent = (task_number / total_tasks * 100) if total_tasks > 0 else 0
+
+        # Detailed task start logging
+        logger.info("=" * 60)
+        logger.info(f"正在执行任务 [{task_number}/{total_tasks}] - 进度 {progress_percent:.1f}%")
+        logger.info(f"任务 ID: {task['id']}")
+        logger.info(f"任务标题: {task['title']}")
+        logger.info(f"任务描述: {task.get('description', 'N/A')}")
+        logger.info("=" * 60)
 
         # Get workspace
         session_id = state.get("session_id", generate_session_id())
@@ -136,18 +152,29 @@ class CoderAgent(ToolAgent):
         if design_path:
             try:
                 design_content = read_file(design_path)
+                logger.info(f"Read design content from {design_path} ({len(design_content)} chars)")
             except Exception as e:
                 logger.warning(f"Could not read design file: {e}")
 
         # Build the prompt for Claude Code CLI
+        # Include the actual design content so Claude Code knows what to implement
+        design_section = ""
+        if design_content:
+            design_section = f"""
+
+## Technical Design (from {design_path})
+
+{design_content}
+
+---
+"""
+
         task_description = f"""
 Task ID: {task['id']}
 Title: {task['title']}
 Description: {task.get('description', '')}
-
-{f'References: {design_path}' if design_path else ''}
-
-Implement this task according to the technical design.
+{design_section}
+Implement this task according to the technical design above.
 """
         prompt = create_non_interactive_prompt(
             task_description=task_description,
@@ -171,16 +198,26 @@ Implement this task according to the technical design.
         if result.success:
             logger.info(f"Task {task['id']} completed successfully")
 
+            # Calculate duration
+            task_end_time = datetime.now()
+            duration_seconds = (task_end_time - task_start_time).total_seconds()
+
             # Update task status in task list
             task_list = state.get("task_list", [])
             for t in task_list:
                 if t["id"] == task["id"]:
                     t["status"] = "completed"
+                    t["started_at"] = task_start_time.isoformat()
+                    t["completed_at"] = task_end_time.isoformat()
+                    t["duration"] = round(duration_seconds, 2)
                     break
 
             # Update completed tasks
             completed_tasks = state.get("completed_tasks", [])
             completed_tasks.append(task["id"])
+
+            # Sync task status to tasks.json
+            update_tasks_json_file(session_id, task_list)
 
             # Update state
             current_index = state.get("current_task_index", 0)
@@ -197,12 +234,22 @@ Implement this task according to the technical design.
             error_msg = f"Task {task['id']} failed: {result.error}"
             logger.error(error_msg)
 
+            # Calculate duration
+            task_end_time = datetime.now()
+            duration_seconds = (task_end_time - task_start_time).total_seconds()
+
             # Mark task as failed/blocked
             task_list = state.get("task_list", [])
             for t in task_list:
                 if t["id"] == task["id"]:
                     t["status"] = "blocked"
+                    t["started_at"] = task_start_time.isoformat()
+                    t["blocked_at"] = task_end_time.isoformat()
+                    t["duration"] = round(duration_seconds, 2)
                     break
+
+            # Sync task status to tasks.json
+            update_tasks_json_file(session_id, task_list)
 
             return {
                 "task_list": task_list,
@@ -223,36 +270,83 @@ Implement this task according to the technical design.
         Returns:
             Dictionary of state updates
         """
-        logger.info("Executing all remaining tasks")
+        import time
 
         task_list = state.get("task_list", [])
         total_tasks = len(task_list)
         completed_tasks = state.get("completed_tasks", [])
+        initial_completed = len(completed_tasks)
+        remaining_tasks = total_tasks - initial_completed
+
+        logger.info("=" * 60)
+        logger.info(f"开始批量执行任务")
+        logger.info(f"总任务数: {total_tasks}")
+        logger.info(f"已完成: {initial_completed}")
+        logger.info(f"待执行: {remaining_tasks}")
+        logger.info("=" * 60)
+
+        start_time = time.time()
+        task_times = []
 
         for i in range(self.max_iterations):
             current_index = state.get("current_task_index", 0)
+            current_completed = len(state.get("completed_tasks", []))
 
             # Check if done
             if current_index >= len(task_list):
-                logger.info(f"All {total_tasks} tasks completed")
+                elapsed = int(time.time() - start_time)
+                logger.info("=" * 60)
+                logger.info(f"所有任务已完成!")
+                logger.info(f"总用时: {elapsed} 秒")
+                logger.info(f"完成任务数: {current_completed}/{total_tasks}")
+                logger.info("=" * 60)
                 return {
                     "stage": "done",
                     "coding_output": f"Completed all {total_tasks} tasks"
                 }
 
+            # Show progress every 3 tasks or on first/last task
+            show_progress = (i == 0 or current_completed == total_tasks - 1 or
+                           (current_completed > 0 and current_completed % 3 == 0))
+
+            if show_progress:
+                progress = (current_completed / total_tasks * 100) if total_tasks > 0 else 0
+                logger.info(f"进度: {progress:.1f}% ({current_completed}/{total_tasks})")
+
+                # Calculate ETA if we have timing data
+                if task_times:
+                    avg_time = sum(task_times) / len(task_times)
+                    remaining = total_tasks - current_completed
+                    eta_seconds = int(avg_time * remaining)
+                    logger.info(f"预计剩余时间: {eta_seconds // 60} 分 {eta_seconds % 60} 秒")
+
             # Execute current task
+            task_start = time.time()
             updates = self._execute_tool(state)
+            task_elapsed = time.time() - task_start
+            task_times.append(task_elapsed)
+
             state.update(updates)
+
+            # Sync task status to tasks.json after each task
+            if "task_list" in state:
+                update_tasks_json_file(session_id, state["task_list"])
 
             # Check for error
             if updates.get("error"):
-                logger.warning(f"Task execution failed, continuing with next task")
+                logger.warning(f"任务执行失败，继续下一个任务")
 
         # Reached max iterations
-        logger.warning(f"Reached maximum iterations, completed {len(completed_tasks)}/{total_tasks} tasks")
+        final_completed = len(state.get("completed_tasks", []))
+        elapsed = int(time.time() - start_time)
+        logger.warning("=" * 60)
+        logger.warning(f"达到最大迭代次数")
+        logger.warning(f"已完成: {final_completed}/{total_tasks} 任务")
+        logger.warning(f"总用时: {elapsed} 秒")
+        logger.warning("=" * 60)
         return {
             "stage": "done",
-            "coding_output": f"Reached maximum iterations. Completed {len(completed_tasks)}/{total_tasks} tasks"
+            "coding_output": f"Reached maximum iterations. Completed {final_completed}/{total_tasks} tasks"
         }
 
 

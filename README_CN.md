@@ -168,7 +168,10 @@ final_state, status, checkpoint = resume_workflow(
     "title": "创建数据模型",
     "description": "实现 Todo 数据类",
     "dependencies": [],
-    "status": "pending",
+    "status": "completed",
+    "started_at": "2026-01-21T10:30:00.123456",
+    "completed_at": "2026-01-21T10:30:45.678901",
+    "duration": 45.56,
     "priority": 10
   },
   {
@@ -181,6 +184,28 @@ final_state, status, checkpoint = resume_workflow(
   }
 ]
 ```
+
+**任务状态说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 任务唯一标识符 |
+| `title` | string | 任务标题 |
+| `description` | string | 任务详细描述 |
+| `dependencies` | array | 前置任务 ID 列表 |
+| `status` | string | 任务状态：`pending` / `completed` / `blocked` |
+| `started_at` | string | 任务开始时间 (ISO 8601 格式) |
+| `completed_at` | string | 任务完成时间 (仅 completed 状态) |
+| `blocked_at` | string | 任务阻塞时间 (仅 blocked 状态) |
+| `duration` | number | 执行耗时（秒，保留 2 位小数） |
+| `priority` | number | 任务优先级 |
+
+**任务状态同步：**
+
+系统会在每次任务状态变更时自动同步 `tasks.json` 到磁盘，确保工作流中断后可以正确恢复任务进度。状态更新时机：
+- 任务开始执行时 → 记录 `started_at`
+- 任务成功完成时 → 更新 `status` 为 `completed`，记录 `completed_at` 和 `duration`
+- 任务执行失败时 → 更新 `status` 为 `blocked`，记录 `blocked_at` 和 `duration`
 
 **人工审核点：** 可以修改设计文档或任务清单。
 
