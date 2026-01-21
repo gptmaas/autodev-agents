@@ -397,22 +397,39 @@ def get_pm_revision_prompt(prd_content: str, feedback: str) -> str:
 """
 
 
-def get_architect_prompt(prd_path: str) -> str:
+def get_architect_prompt(prd_path: str, prd_content: str = "") -> str:
     """获取架构师 agent 提示词。
 
     Args:
         prd_path: PRD 文件的路径
+        prd_content: PRD 文件的实际内容（重要：LLM 无法直接读取本地文件，必须传递内容）
 
     Returns:
         架构师 agent 的完整提示词
     """
-    return f"""{ARCHITECT_SYSTEM_PROMPT}
+    prd_section = ""
+    if prd_content:
+        prd_section = f"""
+
+## 产品需求文档 (PRD)
+
+{prd_content}
+
+---
+"""
+    else:
+        prd_section = f"""
 
 ## PRD 位置
 
 PRD 已保存到：{prd_path}
 
 请阅读 PRD 并创建：
+"""
+
+    return f"""{ARCHITECT_SYSTEM_PROMPT}
+{prd_section}
+请基于上述 PRD 创建：
 1. 全面的技术设计文档
 2. 包含原子实施任务的 tasks.json 文件
 

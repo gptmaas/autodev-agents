@@ -230,21 +230,28 @@ def validate_coding_output(output: str) -> Tuple[bool, str]:
     output_lower = output.lower()
 
     # Check for explicit failure indicators
+    # Use word boundaries to avoid matching legitimate text like "error handling"
     failure_patterns = [
-        "failed to", "error:", "cannot", "unable to",
-        "exception", "traceback"
+        r"\bfailed to\b",
+        r"\berror:\s",  # error: followed by space (actual error message)
+        r"\bcannot\b",
+        r"\bunable to\b",
+        r"\bexception\b",
+        r"\btraceback\b"
     ]
 
     for pattern in failure_patterns:
-        if pattern in output_lower:
+        if re.search(pattern, output_lower):
             return False, f"Failure pattern detected: '{pattern}'"
 
     # Check for success indicators
+    # Also accept Chinese success indicators
     success_patterns = [
-        "completed", "implemented", "created", "written"
+        "completed", "implemented", "created", "written",
+        "完成", "创建", "写入", "生成"
     ]
 
-    has_success = any(pattern in output_lower for pattern in success_patterns)
+    has_success = any(re.search(rf"\\b{pattern}\\b", output_lower) for pattern in success_patterns)
 
     if has_success:
         return True, "Task completed successfully"

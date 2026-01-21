@@ -56,9 +56,9 @@ class CheckpointManager:
         """
         settings = get_settings()
 
-        # Create checkpoints directory
-        workspace = Path(settings.workspace.root)
-        checkpoints_dir = ensure_directory(workspace / "checkpoints")
+        # Create checkpoints directory in data folder (与 workspace 平级)
+        data_dir = settings.get_data_directory()
+        checkpoints_dir = ensure_directory(data_dir / "checkpoints")
 
         # Database path
         db_path = checkpoints_dir / "checkpoints.db"
@@ -92,8 +92,8 @@ class CheckpointManager:
             Path to checkpoint directory
         """
         settings = get_settings()
-        workspace = Path(settings.workspace.root)
-        checkpoints_dir = ensure_directory(workspace / "checkpoints")
+        data_dir = settings.get_data_directory()
+        checkpoints_dir = ensure_directory(data_dir / "checkpoints")
         return checkpoints_dir / session_id
 
 

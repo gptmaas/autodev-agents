@@ -77,7 +77,7 @@ class ClaudeCLIWrapper:
         work_dir: Optional[str] = None,
         timeout: Optional[int] = None,
         non_interactive: bool = True,
-        add_dir: Optional[str | List[str]] = None
+        add_dir: Optional[str] = None
     ) -> ClaudeCLIResult:
         """Execute Claude Code CLI with the given prompt.
 
@@ -141,7 +141,7 @@ class ClaudeCLIWrapper:
         prompt: str,
         work_dir: Optional[str],
         non_interactive: bool,
-        add_dir: Optional[str | List[str]] = None
+        add_dir: Optional[str] = None
     ) -> List[str]:
         """Build the command list for Claude CLI.
 
@@ -156,13 +156,10 @@ class ClaudeCLIWrapper:
         """
         cmd = [self.claude_path]
 
-        # Add --add-dir if specified (supports multiple directories)
+        # Add --add-dir if specified
         if add_dir:
-            # Normalize to list
-            dirs_to_add = [add_dir] if isinstance(add_dir, str) else add_dir
-            for dir_path in dirs_to_add:
-                cmd.extend(["--add-dir", dir_path])
-            logger.info(f"Using --add-dir: {dirs_to_add}")
+            cmd.extend(["--add-dir", add_dir])
+            logger.info(f"Using --add-dir: {add_dir}")
 
         if non_interactive:
             # 自动接受文件编辑，避免等待确认
@@ -403,7 +400,7 @@ class ClaudeCLIWrapper:
         self,
         prompt_file: Path,
         work_dir: Optional[str] = None,
-        add_dir: Optional[str | List[str]] = None
+        add_dir: Optional[str] = None
     ) -> ClaudeCLIResult:
         """Execute Claude CLI with a prompt from a file.
 

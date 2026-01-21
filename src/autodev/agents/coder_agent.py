@@ -151,12 +151,10 @@ class CoderAgent(ToolAgent):
 
         if project_dir:
             # User specified a project directory
-            # Use project directory as work_dir
+            # Code will be generated in project_dir (via subprocess cwd)
             work_dir = project_dir
-            # Add BOTH workspace and project directory so Claude can access:
-            # 1. Workspace dir: PRD.md, Design.md, tasks.json
-            # 2. Project dir: where to generate the code
-            add_dir = [workspace_dir, project_dir]
+            # --add-dir only needs workspace_dir so Claude can read PRD.md, Design.md, etc.
+            add_dir = workspace_dir
             logger.info(f"Using project directory: {work_dir}")
             logger.info(f"Adding workspace to --add-dir: {workspace_dir}")
         else:

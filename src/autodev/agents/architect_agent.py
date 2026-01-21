@@ -51,7 +51,19 @@ class ArchitectAgent(LLMAgent):
         prd_path = state.get("prd_file_path", "")
         feedback = state.get("design_feedback", "")
 
-        prompt = get_architect_prompt(prd_path)
+        # Read PRD content to include in the prompt
+        # This is critical: LLM cannot read local files directly,
+        # so we must include the actual PRD content in the prompt
+        prd_content = ""
+        if prd_path:
+            try:
+                from ..tools.file_ops import read_file
+                prd_content = read_file(prd_path)
+                logger.info(f"Read PRD content from {prd_path} ({len(prd_content)} chars)")
+            except Exception as e:
+                logger.warning(f"Could not read PRD file {prd_path}: {e}")
+
+        prompt = get_architect_prompt(prd_path, prd_content)
 
         if feedback:
             prompt += f"\n\n## Feedback to Address\n\n{feedback}\n\nPlease revise the design to address this feedback."

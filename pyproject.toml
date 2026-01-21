@@ -43,11 +43,11 @@ dev = [
 ]
 
 [project.scripts]
-autodev = "src.main:cli"
+autodev = "autodev.main:cli"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+where = ["src"]
+include = ["autodev*"]
 
 [tool.black]
 line-length = 100

@@ -29,6 +29,8 @@ class ClaudeCLIConfig:
     timeout: int = 300
     max_retries: int = 3
     retry_delay: float = 1.0
+    enable_stream_output: bool = True
+    heartbeat_interval: int = 30
 
 
 @dataclass
@@ -38,6 +40,7 @@ class WorkspaceConfig:
     root: str = "workspace"
     code_dir: str = "code"
     artifacts_dir: str = "artifacts"
+    data_root: str = "data"  # 与 workspace 平级的 data 目录，用于存储 checkpoints 等数据
 
 
 @dataclass
@@ -111,11 +114,20 @@ class Settings:
         if workspace_root := os.getenv("WORKSPACE_ROOT"):
             self.workspace.root = workspace_root
 
+        if data_root := os.getenv("DATA_ROOT"):
+            self.workspace.data_root = data_root
+
         if timeout := os.getenv("CLAUDE_CLI_TIMEOUT"):
             self.claude_cli.timeout = int(timeout)
 
         if max_retries := os.getenv("CLAUDE_CLI_MAX_RETRIES"):
             self.claude_cli.max_retries = int(max_retries)
+
+        if stream_output := os.getenv("CLAUDE_CLI_STREAM_OUTPUT"):
+            self.claude_cli.enable_stream_output = stream_output.lower() in ("true", "1", "yes")
+
+        if heartbeat_interval := os.getenv("CLAUDE_CLI_HEARTBEAT_INTERVAL"):
+            self.claude_cli.heartbeat_interval = int(heartbeat_interval)
 
         if max_iterations := os.getenv("MAX_CODING_ITERATIONS"):
             self.agent.max_coding_iterations = int(max_iterations)
@@ -178,6 +190,16 @@ class Settings:
         artifacts_dir = workspace / self.workspace.artifacts_dir
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         return artifacts_dir
+
+    def get_data_directory(self) -> Path:
+        """Get the data directory path (与 workspace 平级).
+
+        Returns:
+            Path to data directory
+        """
+        data_dir = Path(self.workspace.data_root)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
 
 
 # Global settings instance
