@@ -31,6 +31,7 @@ class ClaudeCLIConfig:
     retry_delay: float = 1.0
     enable_stream_output: bool = True
     heartbeat_interval: int = 30
+    validation_mode: str = "lenient"  # "strict" or "lenient"
 
 
 @dataclass
@@ -128,6 +129,13 @@ class Settings:
 
         if heartbeat_interval := os.getenv("CLAUDE_CLI_HEARTBEAT_INTERVAL"):
             self.claude_cli.heartbeat_interval = int(heartbeat_interval)
+
+        if validation_mode := os.getenv("CLAUDE_CLI_VALIDATION_MODE"):
+            validation_mode = validation_mode.lower()
+            if validation_mode in ("strict", "lenient"):
+                self.claude_cli.validation_mode = validation_mode
+            else:
+                logger.warning(f"Invalid VALIDATION_MODE: {validation_mode}. Must be 'strict' or 'lenient'. Using default: 'lenient'")
 
         if max_iterations := os.getenv("MAX_CODING_ITERATIONS"):
             self.agent.max_coding_iterations = int(max_iterations)

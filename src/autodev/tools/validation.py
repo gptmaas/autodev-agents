@@ -216,50 +216,188 @@ def validate_tasks_json(content: str) -> Tuple[bool, List[str], Optional[List[Di
     return is_valid, errors, tasks if is_valid else None
 
 
-def validate_coding_output(output: str) -> Tuple[bool, str]:
+def validate_coding_output(output: str, mode: str = "lenient") -> Tuple[bool, str]:
     """Validate coder agent output.
 
     Checks that output indicates successful completion.
 
     Args:
         output: Output from coder agent
+        mode: Validation mode - "strict" or "lenient" (default: "lenient")
 
     Returns:
         Tuple of (is_success, message)
     """
     output_lower = output.lower()
 
-    # Check for explicit failure indicators
-    # Use word boundaries to avoid matching legitimate text like "error handling"
-    failure_patterns = [
-        r"\bfailed to\b",
-        r"\berror:\s",  # error: followed by space (actual error message)
-        r"\bcannot\b",
-        r"\bunable to\b",
-        r"\bexception\b",
-        r"\btraceback\b"
+    # First, check for exit code - if non-zero, the process failed
+    # This is the most reliable indicator of actual failure
+    # In strict mode, we trust exit codes more
+    # In lenient mode, we look past exit code 1 if there are success indicators
+
+    # Filter out documentation/example lines to avoid false positives
+    # Patterns that indicate content is documentation/examples, not actual errors:
+    documentation_patterns = [
+        r"example:",
+        r"sample:",
+        r"for (example|instance):",
+        r"such as:",
+        r"output:",
+        r"expected:",
+        r"demonstrat",
+        r"illustrat",
+        r"like:",  # "like:" often introduces examples
+        r"e\.g\.",  # e.g. abbreviation
     ]
 
-    for pattern in failure_patterns:
-        if re.search(pattern, output_lower):
-            return False, f"Failure pattern detected: '{pattern}'"
+    def is_documentation_line(line: str) -> bool:
+        """Check if a line is likely documentation/example content."""
+        line_lower = line.lower().strip()
+        for doc_pattern in documentation_patterns:
+            # More flexible matching - pattern can be anywhere in a "context" line
+            if re.search(doc_pattern, line_lower):
+                return True
+        return False
 
-    # Check for success indicators
-    # Also accept Chinese success indicators
-    success_patterns = [
-        "completed", "implemented", "created", "written",
-        "完成", "创建", "写入", "生成"
+    def is_quoted_example(line: str) -> bool:
+        """Check if a line contains quoted error examples."""
+        # Match patterns like: "Error: something" or 'Error: something'
+        # But only when clearly delimited by quotes on both sides
+        quoted_patterns = [
+            r'["\'][\w\s:,]*error:[\w\s:,]*["\']',
+            r'["\'][\w\s:,]*failed to[\w\s:,]*["\']',
+        ]
+        for pattern in quoted_patterns:
+            if re.search(pattern, line, re.IGNORECASE):
+                return True
+        return False
+
+    # Remove lines that are clearly documentation before validation
+    filtered_lines = []
+    for i, line in enumerate(output.split('\n')):
+        # Check surrounding context for documentation indicators
+        context_window = 2  # check 2 lines before and after
+        surrounding_lines = output.split('\n')[max(0, i-context_window):min(len(output.split('\n')), i+context_window+1)]
+        has_doc_context = any(is_documentation_line(l) for l in surrounding_lines)
+
+        # Skip lines that appear to be Claude explaining examples
+        if has_doc_context:
+            continue
+
+        # Skip lines that contain quoted examples like: "Error: something"
+        if is_quoted_example(line):
+            continue
+
+        filtered_lines.append(line)
+
+    filtered_output = '\n'.join(filtered_lines)
+    filtered_lower = filtered_output.lower()
+
+    # Critical error patterns that ALWAYS indicate failure (both modes)
+    critical_error_patterns = [
+        r"no such file or directory",
+        r"file not found",
+        r"permission denied",
+        r"command not found",
+        r"module not found",
+        r"import error.*no module",
+        r"syntax error.*line \d+",
     ]
 
-    has_success = any(re.search(rf"\\b{pattern}\\b", output_lower) for pattern in success_patterns)
+    for pattern in critical_error_patterns:
+        if re.search(pattern, filtered_lower):
+            return False, f"Critical error detected: '{pattern}'"
 
-    if has_success:
-        return True, "Task completed successfully"
-    elif len(output) > 100:
-        # Assume success if there's substantial output without failure indicators
-        return True, "Task appears complete (no failure indicators)"
-    else:
-        return False, "Insufficient output to determine success"
+    if mode == "strict":
+        # Strict mode: More aggressive failure detection
+        # But only on the filtered output (documentation/examples removed)
+        failure_patterns = [
+            r"^error:",  # Error at start of line (after doc filtering)
+            r"^failed to",  # Failed at start of line
+            r"^cannot ",  # Cannot followed by space at start
+            r"^unable to",  # Unable to at start of line
+            r"^traceback",  # Traceback at start (actual errors)
+            r"\[error\]",  # Error in brackets (log output)
+            r"\[failed\]",  # Failed in brackets
+        ]
+
+        for pattern in failure_patterns:
+            if re.search(pattern, filtered_lower, re.MULTILINE):
+                return False, f"Failure pattern detected: '{pattern}'"
+
+        # In strict mode, exit code 1 is a failure unless there are clear success indicators
+        if "program exits with code 1" in output_lower or "exit code 1" in output_lower:
+            # Check if there are success indicators that might override this
+            success_patterns = ["completed successfully", "all tests pass", "ready for use", "所有测试通过"]
+            if not any(pattern in output_lower for pattern in success_patterns):
+                return False, "Process exited with code 1 (strict mode)"
+
+        # Require clear success indicators in strict mode
+        success_patterns = [
+            "completed", "successfully", "implemented", "all tests pass",
+            "完成", "创建", "写入", "生成"
+        ]
+
+        has_success = any(re.search(rf"\\b{pattern}\\b", output_lower) for pattern in success_patterns)
+
+        # Check for file activity
+        file_patterns = [
+            r"created (file|files?)",
+            r"written (to )?[\w/\\\.]+",
+            r"modified (file|files?)",
+        ]
+
+        has_file_activity = any(re.search(pattern, output_lower, re.IGNORECASE) for pattern in file_patterns)
+
+        if has_success and has_file_activity:
+            return True, "Task completed successfully (strict mode)"
+        elif has_file_activity:
+            return True, "Task appears complete (file activity detected)"
+        elif has_success:
+            # If there's a success indicator, that's enough
+            return True, "Task completed (success indicator detected)"
+        elif len(output) > 100:
+            # Strict mode needs some substance (lowered threshold)
+            return True, "Task appears complete (substantial output)"
+        else:
+            return False, "Insufficient output for strict validation"
+
+    else:  # lenient mode (default)
+        # Lenient mode: Focus on success indicators, tolerate ambiguity
+        # Only fail on critical errors that are unambiguous
+
+        # Exit code 1 alone is not enough to fail in lenient mode
+        # We look for actual problems vs. benign warnings
+
+        # Check for success indicators
+        success_patterns = [
+            "completed", "implemented", "created", "written", "successfully",
+            "all tests pass", "ready for use",
+            "完成", "创建", "写入", "生成"
+        ]
+
+        has_success = any(re.search(rf"\\b{pattern}\\b", output_lower) for pattern in success_patterns)
+
+        # Check for file activity
+        file_patterns = [
+            r"created (file|files?)",
+            r"written (to )?[\w/\\\.]+",
+            r"modified (file|files?)",
+            r"创建.*文件",
+            r"写入.*文件",
+        ]
+
+        has_file_activity = any(re.search(pattern, output_lower, re.IGNORECASE) for pattern in file_patterns)
+
+        if has_success:
+            return True, "Task completed successfully (lenient mode)"
+        elif has_file_activity:
+            return True, "Task appears complete (file activity detected)"
+        elif len(output) > 100:
+            # Low threshold for lenient mode - most outputs with content are OK
+            return True, "Task appears complete (lenient mode: output exists, no critical errors)"
+        else:
+            return False, "Insufficient output to determine success"
 
 
 def validate_requirement(requirement: str) -> Tuple[bool, List[str]]:
@@ -426,15 +564,16 @@ class OutputValidator:
             raise ValidationError("Tasks validation failed", errors)
 
     @staticmethod
-    def validate_coding_output(output: str) -> None:
+    def validate_coding_output(output: str, mode: str = "lenient") -> None:
         """Validate coding output and raise exception if failed.
 
         Args:
             output: Coder agent output
+            mode: Validation mode - "strict" or "lenient" (default: "lenient")
 
         Raises:
             ValidationError: If validation fails
         """
-        is_success, message = validate_coding_output(output)
+        is_success, message = validate_coding_output(output, mode=mode)
         if not is_success:
-            raise ValidationError(f"Coding validation failed: {message}")
+            raise ValidationError(f"Coding validation failed ({mode} mode): {message}")

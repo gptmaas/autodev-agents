@@ -53,7 +53,8 @@ class ClaudeCLIWrapper:
         self,
         claude_path: Optional[str] = None,
         timeout: Optional[int] = None,
-        max_retries: Optional[int] = None
+        max_retries: Optional[int] = None,
+        validation_mode: Optional[str] = None
     ):
         """Initialize the Claude CLI wrapper.
 
@@ -61,6 +62,7 @@ class ClaudeCLIWrapper:
             claude_path: Path to claude executable (default: from settings)
             timeout: Timeout in seconds (default: from settings)
             max_retries: Maximum number of retries (default: from settings)
+            validation_mode: Validation mode - "strict" or "lenient" (default: from settings)
         """
         settings = get_settings()
 
@@ -70,6 +72,7 @@ class ClaudeCLIWrapper:
         self.retry_delay = settings.claude_cli.retry_delay
         self.enable_stream_output = settings.claude_cli.enable_stream_output
         self.heartbeat_interval = settings.claude_cli.heartbeat_interval
+        self.validation_mode = validation_mode or settings.claude_cli.validation_mode
 
     def run(
         self,
@@ -336,7 +339,7 @@ class ClaudeCLIWrapper:
         """
         # Check for success
         is_success = exit_code == 0
-        is_success_output, _ = validate_coding_output(output)
+        is_success_output, validation_message = validate_coding_output(output, mode=self.validation_mode)
 
         if not is_success:
             error_msg = error_output or f"Exit code: {exit_code}"
@@ -349,11 +352,13 @@ class ClaudeCLIWrapper:
             )
 
         if not is_success_output:
-            logger.warning("Claude CLI output validation failed")
+            logger.warning(f"Claude CLI output validation failed: {validation_message}")
+            # Log the actual output for debugging
+            logger.debug(f"Output that failed validation: {output[:500]}...")
             return ClaudeCLIResult(
                 success=False,
                 output=output,
-                error="Output validation failed",
+                error=f"Output validation failed: {validation_message}",
                 exit_code=exit_code
             )
 
